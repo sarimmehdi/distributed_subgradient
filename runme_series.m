@@ -5,7 +5,7 @@ noLinprog = 0;
 %set second argument to 0 if you don't want to use original data as Vujanic
 %if third argument is 1, then you are going to have more cars with higher
 %power (recommended that you keep it as 1)
-[I,P,Emin,Emax,Einit,Eref,rateu,ratev,deltaT,N,Pmax,Pmin,Cu,Cv,deltau,deltav] = MakeRandom(100,4,1);
+[I,P,Emin,Emax,Einit,Eref,rateu,ratev,deltaT,N,Pmax,Pmin,Cu,Cv,deltau,deltav] = MakeRandom(100,0,1);
 rng('shuffle');
 
 if noLinprog == 0
@@ -25,8 +25,9 @@ if noLinprog == 0
         c = [c P(1,ii)*(Cu(ii,:)+deltau(1,ii)) -P(1,ii)*(Cv(ii,:)+deltav(1,ii)) zeros(1,N)];
         mata = P(1,ii)*eye(N,N); matb = -P(1,ii)*eye(N,N); tempA = [mata matb zeros(N,N); matb mata zeros(N,N)];
         A = [A tempA];
-        matA = tril(-P(1,ii)*deltaT*rateu(1,ii)*ones(N,N)); matB = tril(P(1,ii)*deltaT*ratev(1,ii)*ones(N,N));
-        tempa = [matA matB eye(N,N)];
+        matA = -P(1,ii)*deltaT*rateu(1,ii)*eye(N,N); matB = P(1,ii)*deltaT*ratev(1,ii)*eye(N,N);
+        matC = -1*(tril(ones(N))-tril(ones(N),-2)-eye(N)) + eye(N);
+        tempa = [matA matB matC];
         if ii > 1 && ii < I
             A_eq = [A_eq; zeros(N,3*N*(ii-1)) tempa zeros(N,3*N*(I-ii))]; 
             A_ineq = [A_ineq; zeros(N+1,3*N*(ii-1)) tempMat1 tempMat1 tempMat2 zeros(N+1,3*N*(I-ii))];
@@ -37,7 +38,7 @@ if noLinprog == 0
             A_eq = [A_eq tempa zeros(N,3*N*(I-ii))]; 
             A_ineq = [A_ineq tempMat1 tempMat1 tempMat2 zeros(N+1,3*N*(I-ii))];
         end
-        b_eq = [b_eq Einit(1,ii)*ones(1,N)]; b_ineq = [b_ineq ones(1,N) -Eref(1,ii)];
+        b_eq = [b_eq Einit(1,ii) zeros(1,N-1)]; b_ineq = [b_ineq ones(1,N) -Eref(1,ii)];
         X_tl = [X_tl zeros(1,2*N) Emin*ones(1,N)]; X_tu = [X_tu ones(1,2*N) Emax(1,ii)*ones(1,N)];
         if rem(ii,10)==0
             fprintf('Matrix creation progress (in percentage): %f\n',(ii/I)*100)
@@ -81,7 +82,7 @@ end
 %you can only change k and beta!
 fprintf('Creating matrices for distributed algorithm\n')
 tic
-k=5000; beta=0.01; convergence_error = 0.001;
+k=1000; beta=0.01; convergence_error = 0.001;
 mem_den=zeros(1,I); newmem_den = mem_den; v=zeros(48,I);
 mem_num=zeros(3*N,I); newmem_num = mem_num;
 x = zeros(3*N,I); xEst = x; xBet = x;
@@ -93,9 +94,10 @@ c = zeros(I,3*N); tempMat1 = [eye(N,N); zeros(1,N)]; tempMat2 = zeros(N+1,N); te
 for ii=1:I
     mata = P(1,ii)*eye(N,N); matb = -P(1,ii)*eye(N,N);
     A{ii} = [mata matb zeros(N,N); matb mata zeros(N,N)];
-    matA = tril(-P(1,ii)*deltaT*rateu(1,ii)*ones(N,N)); 
-    matB = tril(P(1,ii)*deltaT*ratev(1,ii)*ones(N,N));
-    A_eq{ii} = [matA matB eye(N,N)]; b_eq{ii} = Einit(1,ii)*ones(N,1);
+    matA = -P(1,ii)*deltaT*rateu(1,ii)*eye(N,N);
+    matB = P(1,ii)*deltaT*ratev(1,ii)*eye(N,N);
+    matC = -1*(tril(ones(N))-tril(ones(N),-2)-eye(N)) + eye(N);
+    A_eq{ii} = [matA matB matC]; b_eq{ii} = [Einit(1,ii); zeros(N-1,1)];
     A_ineq{ii} = [tempMat1 tempMat1 tempMat2]; b_ineq{ii} = [ones(N,1); -Eref(1,ii)];
     X_tu{ii} = [ones(1,2*N) Emax(1,ii)*ones(1,N)];
     c(ii,:) = [P(1,ii)*(Cu(ii,:)+deltau(1,ii)) -P(1,ii)*(Cv(ii,:)+deltav(1,ii)) zeros(1,N)];
@@ -111,6 +113,7 @@ a = DoublyStochUndirected(I);
 X_tl=[zeros(1,2*N) Emin*ones(1,N)];
 
 %matrices for plotting and showing convergence properties
+newGraph = zeros(1,k+1);
 estimated_violation = zeros(48,k+1); better_violation = zeros(48,k+1); convIters = ones(1,I);
 graphA = zeros(1,k+1); graphB = graphA; graphL = graphA;
 graphAnorm = graphA; graphBnorm = graphA; graphLnorm = graphA;
@@ -202,10 +205,11 @@ for j=0:k
     %subtract the upper bound from the sum of all the agents violation
     better_violation(:,j+1) = better_violation(:,j+1) - b;
     estimated_violation(:,j+1) = estimated_violation(:,j+1) - b;
+    newGraph(1,j+1) = max(better_violation(:,j+1));   %I decided to plot this separately in command window
     fprintf('iteration %d complete\n',j)
-    fprintf('Your dual cost is %f\n',actual_cost)
-    fprintf('Your estimated cost is %f\n',estimated_cost)
-    fprintf('Your better estimated cost is %f\n',better_cost)
+    fprintf('Your dual cost is %f\n',abs(actual_cost - cost))
+    fprintf('Your estimated cost is %f\n',abs(estimated_cost - cost))
+    fprintf('Your better estimated cost is %f\n',abs(better_cost - cost))
     %plot the absolute difference between this cost and the cost calculated
     %using the centralized approach
     if noLinprog == 0
@@ -241,6 +245,7 @@ distSolveTime = toc/60; %call this variable in command window to see actual time
 
 %plot each graph manually in command window for better viewing
 subplot(4,4,1); plot(graphA(1,:))
+set(gca, 'YScale', 'log')
 title('Relative Dual Cost')
 xlabel('number of iterations') 
 if noLinprog == 0
@@ -249,6 +254,7 @@ else
     yLabel('Dual Cost')
 end 
 subplot(4,4,2); plot(graphB(1,:))
+set(gca, 'YScale', 'log')
 title('Relative Estimated Cost')
 xlabel('number of iterations') 
 if noLinprog == 0
@@ -257,6 +263,7 @@ else
     ylabel('Estimated Cost')
 end
 subplot(4,4,3); plot(graphL(1,:))
+set(gca, 'YScale', 'log')
 hold on
 %show on graph the iterations at which convergence threshold was achieved
 for ii=1:I
@@ -270,23 +277,29 @@ else
     ylabel('Better Estimated Cost')
 end
 subplot(4,4,4); plot(graphBnorm(1,:))
+set(gca, 'YScale', 'log')
 title('Estimated Cost')
 xlabel('number of iterations')
 ylabel('Estimated Cost')
 subplot(3,4,5); plot(graphLnorm(1,:))
+set(gca, 'YScale', 'log')
 title('Better Estimated Cost')
 xlabel('number of iterations')
 ylabel('Better Estimated Cost')
 subplot(3,4,6); plot(graphE(1:I,1:k)')
+set(gca, 'YScale', 'log')
 title({'Evolution of average of';'all dual variable vectors'})
 xlabel('number of iterations')
 subplot(3,4,7); plot(graphF(1:I,1:k)')
+set(gca, 'YScale', 'log')
 title({'Evolution of norm of';'difference with average'})
 xlabel('number of iterations')
 subplot(3,4,8); plot(graphG(1:I,1:k)')
+set(gca, 'YScale', 'log')
 title({'Evolution of weighted norm';'of difference with average'})
 xlabel('number of iterations')
 subplot(3,4,9); plot(graphJ(1:I,1:k)')
+set(gca, 'YScale', 'log')
 xlabel('number of iterations')
 title({'Evolution of norm of';'difference with true solution'})
 subplot(3,4,10); plot(estimated_violation(1:48,1:k)')
@@ -296,6 +309,7 @@ subplot(3,4,11); plot(better_violation(1:48,1:k)')
 xlabel('number of iterations')
 title('Evolution of better violation')
 subplot(3,4,12)
+set(gca, 'YScale', 'log')
 hold on
 for zz=1:I
     fg=dual_history{zz}; plot(fg(1,:))
@@ -317,3 +331,10 @@ hold off
 % title('Duality gap')
 % xlabel('number of iterations')
 % ylabel({'Dual vs Estimated';'vs Better Estimated'})
+%legend('dual cost','estimated cost','better estimated cost')
+
+%use this to set font size for axis
+%set(gca, 'FontSize',20)
+
+%use this to limit the xrange
+%xlim([0 1000])

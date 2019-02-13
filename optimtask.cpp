@@ -92,10 +92,12 @@ void OptimTask::generate_node_data(Data &d, Node_Data &D, int world_rank)
   mat tempMat1 = join_cols(eye<mat>(d.N,d.N),zeros<mat>(1,d.N)), tempMat2 = zeros<mat>(d.N+1,d.N); tempMat2(d.N,d.N-1) = -1;
   D.Aineq = join_rows(join_rows(tempMat1,tempMat1),tempMat2); D.bineq = join_cols(ones<mat>(d.N,1),-1*d.Eref*ones<mat>(1,1));
 
-  //(From matlab) matA = tril(-P(1,ii)*deltaT*rateu(1,ii)*ones(N,N)); matB = tril(P(1,ii)*deltaT*ratev(1,ii)*ones(N,N));
-  //A_eq{ii} = [matA matB eye(N,N)]; b_eq{ii} = Einit(1,ii)*ones(N,1);
-  mat matA = trimatl(-1*d.P*d.deltaT*d.rateu*ones<mat>(d.N,d.N)), matB = trimatl(d.P*d.deltaT*d.ratev*ones<mat>(d.N,d.N));
-  D.Aeq = join_rows(join_rows(matA,matB),eye<mat>(d.N,d.N)); D.beq = d.Einit*ones<mat>(d.N,1);
+  //(From matlab) matA = -P(1,ii)*deltaT*rateu(1,ii)*eye(N,N); matB = P(1,ii)*deltaT*ratev(1,ii)*eye(N,N);
+  //matC = -1*(tril(ones(N))-tril(ones(N),-2)-eye(N)) + eye(N);
+  //A_eq{ii} = [matA matB matC]; b_eq{ii} = [Einit(1,ii); zeros(N-1,1)];
+  mat matA = -1*d.P*d.deltaT*d.rateu*eye<mat>(d.N,d.N), matB = d.P*d.deltaT*d.ratev*eye<mat>(d.N,d.N);
+  mat matC = -1*(trimatl(ones<mat>(d.N,d.N))-trimatl(ones<mat>(d.N,d.N),-2)-eye<mat>(d.N,d.N)) + eye<mat>(d.N,d.N);
+  D.Aeq = join_rows(join_rows(matA,matB),matC); D.beq = join_cols(d.Einit*ones<mat>(1,1),zeros<mat>(d.N-1,1));
 
   //(From matlab) X_tl=[zeros(1,2*N) Emin*ones(1,N)];
   D.X_tl = join_rows(zeros<mat>(1,2*d.N),d.Emin*ones<mat>(1,d.N));
